@@ -1,0 +1,51 @@
+openapi: 3.0.3
+info:
+  title: Notification Service API
+  description: >-
+    Contract of the external notification API, used to generate its client at
+    build time. Temporarily vendored in this repository; in a real setup the
+    notification service team publishes this specification (or the generated
+    client) as a versioned library that this service consumes.
+  version: v1
+
+tags:
+  - name: notifications
+
+paths:
+  /notifications:
+    post:
+      tags: [notifications]
+      operationId: sendNotification
+      summary: Notify recipe contributors about a recipe change
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RecipeChangedNotification'
+      responses:
+        '202':
+          description: Notification accepted
+
+components:
+  schemas:
+    RecipeChangedNotification:
+      type: object
+      required: [recipeId, recipeName, type, triggeredBy, recipients]
+      properties:
+        recipeId:
+          type: string
+          format: uuid
+        recipeName:
+          type: string
+        type:
+          type: string
+          enum: [CREATED, UPDATED, DELETED]
+        triggeredBy:
+          type: string
+          description: Id of the user whose change triggered the notification
+        recipients:
+          type: array
+          description: Ids of the users to notify
+          items:
+            type: string

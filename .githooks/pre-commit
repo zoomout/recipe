@@ -1,0 +1,6 @@
+#!/bin/sh
+
+echo "Running Spotless formatting via Maven Wrapper..."
+./mvnw spotless:apply
+git add -u
+

@@ -1,0 +1,374 @@
+openapi: 3.0.3
+info:
+  title: Recipe Service API
+  description: >-
+    REST API to manage recipes: create, retrieve, update, delete and
+    filter by vegetarian flag, number of servings and excluded ingredients.
+    Security (authentication/authorization) is out of scope for this service
+    and must be enforced by an API gateway in front of it; the gateway forwards
+    the authenticated user's id in the `X-Forwarded-User` header (the de
+    facto standard used by authenticating proxies), which every request must
+    carry.
+  version: v1
+
+tags:
+  - name: recipes
+    description: CRUD and filter operations for recipes
+
+paths:
+  /api/v1/recipes:
+    post:
+      tags: [recipes]
+      operationId: createRecipe
+      summary: Create a recipe
+      parameters:
+        - $ref: '#/components/parameters/ForwardedUserHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RecipeRequest'
+      responses:
+        '201':
+          description: Recipe created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RecipeResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+    get:
+      tags: [recipes]
+      operationId: getRecipes
+      summary: Get recipes
+      description: >-
+        Returns a page of recipes, optionally filtered by vegetarian flag,
+        number of servings and excluded ingredients (case-insensitive).
+      x-spring-paginated: true
+      parameters:
+        - $ref: '#/components/parameters/ForwardedUserHeader'
+        - name: vegetarian
+          in: query
+          description: >-
+            Only recipes containing exclusively vegetarian ingredients (true) or
+            containing at least one non-vegetarian ingredient (false)
+          required: false
+          schema:
+            type: boolean
+        - name: servings
+          in: query
+          description: Exact number of servings
+          required: false
+          schema:
+            type: integer
+            format: int32
+            minimum: 1
+        - name: excludeIngredients
+          in: query
+          description: Ingredients the recipe must NOT contain (case-insensitive)
+          required: false
+          schema:
+            type: array
+            items:
+              type: string
+        - name: page
+          in: query
+          description: Zero-based page index
+          required: false
+          schema:
+            type: integer
+            format: int32
+            minimum: 0
+            default: 0
+        - name: size
+          in: query
+          description: Page size
+          required: false
+          schema:
+            type: integer
+            format: int32
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: sort
+          in: query
+          description: >-
+            Sort specification: property or property,direction. Allowed
+            properties: id, name, servings, createdAt, updatedAt
+          required: false
+          schema:
+            type: string
+            default: 'name,asc'
+      responses:
+        '200':
+          description: Page of recipes
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RecipePage'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /api/v1/recipes/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: Recipe identifier
+        schema:
+          type: string
+          format: uuid
+    get:
+      tags: [recipes]
+      operationId: getRecipe
+      summary: Get a recipe by id
+      parameters:
+        - $ref: '#/components/parameters/ForwardedUserHeader'
+      responses:
+        '200':
+          description: Recipe found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RecipeResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    put:
+      tags: [recipes]
+      operationId: updateRecipe
+      summary: Update a recipe
+      parameters:
+        - $ref: '#/components/parameters/ForwardedUserHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RecipeRequest'
+      responses:
+        '200':
+          description: Recipe updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RecipeResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags: [recipes]
+      operationId: deleteRecipe
+      summary: Delete a recipe
+      description: >-
+        Idempotent: deleting a recipe that does not (or no longer) exist(s)
+        also returns 204.
+      parameters:
+        - $ref: '#/components/parameters/ForwardedUserHeader'
+      responses:
+        '204':
+          description: Recipe deleted (or already absent)
+
+components:
+  parameters:
+    ForwardedUserHeader:
+      name: X-Forwarded-User
+      in: header
+      description: >-
+        Id of the requesting user, forwarded by the API gateway after it has
+        authenticated the caller (security is out of scope for this service).
+      required: true
+      example: alice
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 320
+
+  responses:
+    BadRequest:
+      description: Validation failed (RFC 7807)
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetail'
+    NotFound:
+      description: Recipe not found (RFC 7807)
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetail'
+
+  schemas:
+    RecipeRequest:
+      type: object
+      description: >-
+        Payload to create or fully update a recipe. Whether the recipe is
+        vegetarian is derived from its ingredients.
+      required: [name, instructions, servings, ingredients]
+      properties:
+        name:
+          type: string
+          description: Recipe name
+          example: Spaghetti Bolognese
+          minLength: 1
+          maxLength: 255
+        description:
+          type: string
+          description: Short description
+          example: Classic Italian pasta dish
+          maxLength: 1000
+        instructions:
+          type: string
+          description: Preparation instructions
+          example: Cook pasta. Simmer sauce. Combine and serve.
+          minLength: 1
+          maxLength: 10000
+        servings:
+          type: integer
+          format: int32
+          description: Number of servings
+          example: 4
+          minimum: 1
+          maximum: 100
+        ingredients:
+          type: array
+          description: >-
+            Ingredients with their vegetarian flag and amount; names must be
+            unique within a recipe after normalisation (trimmed, lowercased)
+          minItems: 1
+          maxItems: 100
+          items:
+            $ref: '#/components/schemas/Ingredient'
+
+    Ingredient:
+      type: object
+      description: A recipe ingredient
+      required: [name, vegetarian, quantity, unit]
+      properties:
+        name:
+          type: string
+          description: >-
+            Ingredient name; must contain at least one non-whitespace
+            character and is stored trimmed and lowercased
+          example: minced beef
+          minLength: 1
+          maxLength: 255
+          pattern: '.*\S.*'
+        vegetarian:
+          type: boolean
+          description: Whether the ingredient is vegetarian
+          example: false
+        quantity:
+          type: number
+          description: >-
+            Amount of this ingredient, expressed in the given unit; stored
+            with two decimal places
+          example: 500
+          minimum: 0.01
+          maximum: 99999999.99
+          multipleOf: 0.01
+        unit:
+          type: string
+          description: Unit the quantity is expressed in
+          enum: [tbsp, tbs, g, kg, ml, l, pc]
+          example: g
+
+    RecipeResponse:
+      type: object
+      description: A stored recipe
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Recipe identifier
+        name:
+          type: string
+        description:
+          type: string
+        instructions:
+          type: string
+        vegetarian:
+          type: boolean
+          description: >-
+            Derived: true when the recipe contains no non-vegetarian ingredient
+          readOnly: true
+        servings:
+          type: integer
+          format: int32
+        ingredients:
+          type: array
+          items:
+            $ref: '#/components/schemas/Ingredient'
+        createdBy:
+          type: string
+          description: Id of the user who created the recipe
+        updatedBy:
+          type: array
+          description: >-
+            Ids of users who updated the recipe, in chronological order of
+            their first update
+          items:
+            type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    RecipePage:
+      type: object
+      description: A page of recipes
+      properties:
+        content:
+          type: array
+          items:
+            $ref: '#/components/schemas/RecipeResponse'
+        page:
+          $ref: '#/components/schemas/PageMetadata'
+
+    PageMetadata:
+      type: object
+      description: Pagination metadata
+      properties:
+        size:
+          type: integer
+          format: int32
+          description: Page size
+        number:
+          type: integer
+          format: int32
+          description: Zero-based page index
+        totalElements:
+          type: integer
+          format: int64
+          description: Total number of matching recipes
+        totalPages:
+          type: integer
+          format: int32
+          description: Total number of pages
+
+    ProblemDetail:
+      type: object
+      description: RFC 7807 problem details
+      properties:
+        type:
+          type: string
+          format: uri
+        title:
+          type: string
+        status:
+          type: integer
+          format: int32
+        detail:
+          type: string
+        instance:
+          type: string
+          format: uri
+        errors:
+          type: object
+          description: Per-field validation errors
+          additionalProperties:
+            type: string
+      additionalProperties: true
